@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ignore Pycharm settings and Mac system
+.idea/
+.DS_Store

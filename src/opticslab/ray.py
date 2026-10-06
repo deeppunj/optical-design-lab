@@ -1,0 +1,1 @@
+# Ray (height, angle)

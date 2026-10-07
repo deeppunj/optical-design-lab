@@ -3,3 +3,5 @@ from .ray import Ray
 from .elements import Space, ThinLens, Aperture
 from .system import OpticalSystem
 from .analysis import effective_focal_length, image_distance_and_magnification
+from .builders import kepler_expander, galilean_expander, beam_magnification
+from .stops import find_stop, marginal_ray, chief_ray, with_object_space

@@ -3,7 +3,7 @@
 ```text
 optical-design-lab/
 ├── README.md                 # what the project is, how to run it
-├── LICENSE                   # MIT is a good portfolio default
+├── LICENSE                   # MIT 
 ├── .gitignore                # files Git must ignore
 ├── pyproject.toml            # project metadata and dependencies
 ├── docs/
@@ -20,5 +20,5 @@ optical-design-lab/
 │   └── demo_single_lens.py   # runnable lesson scripts
 ├── tests/
 │   └── test_paraxial.py      # physics sanity checks
-└── ui/                       # PySide6 app (added at Stage 3)
+└── ui/                       # PySide6 app
 ```

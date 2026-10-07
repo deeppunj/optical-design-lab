@@ -1,0 +1,11 @@
+name: opticslab
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - scipy
+  - matplotlib
+  - pyside6
+  - numpy
+  - pytest
+prefix: /opt/anaconda3/envs/opticslab

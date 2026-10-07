@@ -19,3 +19,4 @@ optical-design-lab/
 ├── tests/
 │   └── test_paraxial.py      # physics sanity checks
 └── ui/                       # PySide6 app (added at Stage 3)
+

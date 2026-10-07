@@ -9,3 +9,7 @@ from .glass import Glass, N_BK7, FUSED_SILICA, N_F2, N_SF11, AIR, get_glass
 from .surfaces import RefractingSurface
 from .lenses import ThickLens, cemented_doublet, back_focal_length, solve_achromat_r3
 from .solver import design_achromat, system_efl, focal_shift_curve, AchromatResult
+from .raytrace import (TraceSurface, doublet_prescription, singlet_prescription,
+                       collimated_beam, trace, at_image_plane, best_focus,
+                       marginal_axis_crossing, rms_spot_radius,
+                       plot_spot_and_fan)

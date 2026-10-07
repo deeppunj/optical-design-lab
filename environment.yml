@@ -3,9 +3,8 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - scipy
-  - matplotlib
-  - pyside6
-  - numpy
+  - pyside6=6.8.2
   - pytest
-prefix: /opt/anaconda3/envs/opticslab
+  - pip
+  - pip:
+      - -e .[dev]

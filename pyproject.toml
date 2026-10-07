@@ -8,8 +8,12 @@ name = "opticslab"
 version = "0.1.0"
 description = "Python optical design app inspired by Ansys-Zemax"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["numpy", "scipy", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest", "optiland>=0.6"]
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

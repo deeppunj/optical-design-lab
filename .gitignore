@@ -220,5 +220,13 @@ __marimo__/
 .streamlit/secrets.toml
 
 # ignore Pycharm settings and Mac system
-.idea/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 .DS_Store
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/

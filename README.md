@@ -1,6 +1,7 @@
 # optical-design-lab
-optical-design-lab/
 
+```text
+optical-design-lab/
 ├── README.md                 # what the project is, how to run it
 ├── LICENSE                   # MIT is a good portfolio default
 ├── .gitignore                # files Git must ignore
@@ -20,4 +21,4 @@ optical-design-lab/
 ├── tests/
 │   └── test_paraxial.py      # physics sanity checks
 └── ui/                       # PySide6 app (added at Stage 3)
-
+```

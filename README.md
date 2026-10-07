@@ -1,5 +1,6 @@
 # optical-design-lab
 optical-design-lab/
+
 ├── README.md                 # what the project is, how to run it
 ├── LICENSE                   # MIT is a good portfolio default
 ├── .gitignore                # files Git must ignore

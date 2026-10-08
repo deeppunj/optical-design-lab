@@ -23,10 +23,17 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.figure import Figure
 
 from opticslab import designer as dz
+from opticslab import optimizer as opt
 from opticslab.glass import LAMBDA_C, LAMBDA_D, LAMBDA_F
 from opticslab.raytrace import at_image_plane, last_vertex_z, rms_spot_radius
 
-HEADERS = ["Radius (mm)", "Thickness (mm)", "Glass after", "n at λ"]
+HEADERS = ["Radius (mm)", "Thickness (mm)", "Glass after", "n at λ",
+           "Vary R", "Vary t"]
+N_DATA_COLS = 4          # columns 0-3 hold the prescription, 4-5 are the optimiser check-boxes
+
+
+class _Abort(Exception):
+    """Raised inside the optimiser callback when the user presses Stop."""
 LINES = {"d  (587.6 nm)": LAMBDA_D, "F  (486.1 nm)": LAMBDA_F,
          "C  (656.3 nm)": LAMBDA_C, "Custom": None}
 COL = {"F": "tab:blue", "d": "tab:green", "C": "tab:red"}
@@ -46,13 +53,16 @@ class Plot(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("optical-design-lab - Stage 6b")
+        self.setWindowTitle("optical-design-lab - Stage 7")
         self.resize(1300, 800)
         self._busy = False
         self._path = None
+        self._stop = False
+        self._running = False
+        self.history = opt.DesignHistory()
 
         # ---------------- prescription table
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, len(HEADERS))
         self.table.setHorizontalHeaderLabels(HEADERS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.itemChanged.connect(self.on_item_changed)
@@ -94,6 +104,46 @@ class MainWindow(QMainWindow):
         self.readout.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.readout.setStyleSheet("font-family: Menlo, monospace;")
 
+        # ---------------- optimiser panel (STAGE 7)
+        self.o_efl_on = QCheckBox("Target EFL")
+        self.o_efl = self._spin(0.1, 10000, 100.0, 3, " mm")
+        self.o_col = self._spin(0, 1e5, 500.0, 0)
+        self.o_rmin = self._spin(1, 5000, 10.0, 1, " mm")
+        self.o_tmin = self._spin(0.01, 100, 0.5, 2, " mm")
+        self.o_tmax = self._spin(1, 2000, 300.0, 0, " mm")
+        self.o_cen = self._spin(0.0, 50, 1.0, 2, " mm")
+        self.o_edge = self._spin(0.0, 50, 1.0, 2, " mm")
+        self.o_iter = self._spin(5, 2000, 200, 0)
+        self.b_run = QPushButton("Optimise")
+        self.b_stop = QPushButton("Stop")
+        self.b_undo = QPushButton("Undo")
+        self.b_redo = QPushButton("Redo")
+        self.b_stop.setEnabled(False)
+        self.b_run.clicked.connect(self.run_opt)
+        self.b_stop.clicked.connect(self.stop_opt)
+        self.b_undo.clicked.connect(self.undo_opt)
+        self.b_redo.clicked.connect(self.redo_opt)
+        self._sync_history_buttons()
+        of = QFormLayout()
+        of.addRow(self.o_efl_on, self.o_efl)
+        of.addRow("Axial colour weight", self.o_col)
+        of.addRow("Min |radius| (R bound)", self.o_rmin)
+        of.addRow("Thickness min / max", self._pair(self.o_tmin, self.o_tmax))
+        of.addRow("Glass centre / edge min", self._pair(self.o_cen, self.o_edge))
+        of.addRow("Max evaluations", self.o_iter)
+        orow = QHBoxLayout()
+        for b in (self.b_run, self.b_stop, self.b_undo, self.b_redo):
+            orow.addWidget(b)
+        self.o_report = QLabel("Tick 'Vary R' / 'Vary t' in the table, then press Optimise.")
+        self.o_report.setWordWrap(True)
+        self.o_report.setStyleSheet("font-family: Menlo, monospace;")
+        ol = QVBoxLayout()
+        ol.addLayout(of)
+        ol.addLayout(orow)
+        ol.addWidget(self.o_report)
+        obox = QGroupBox("Optimiser (F/d/C light, on-axis + the field angle above)")
+        obox.setLayout(ol)
+
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.addWidget(QLabel("<b>Prescription</b> (radius 0 = flat; last "
@@ -102,13 +152,17 @@ class MainWindow(QMainWindow):
         ll.addLayout(btns)
         ll.addWidget(box)
         ll.addWidget(self.readout)
+        ll.addWidget(obox)
 
         # ---------------- plots
         self.p_layout, self.p_spot, self.p_fan = Plot(), Plot(), Plot()
+        self.p_merit = Plot()
         tabs = QTabWidget()
         tabs.addTab(self.p_layout, "Layout")
         tabs.addTab(self.p_spot, "Spot diagram")
         tabs.addTab(self.p_fan, "Ray fan")
+        tabs.addTab(self.p_merit, "Merit")
+        self.tabs = tabs
         split = QSplitter()
         split.addWidget(left)
         split.addWidget(tabs)
@@ -233,6 +287,12 @@ class MainWindow(QMainWindow):
         combo.currentTextChanged.connect(lambda _t, c=combo: self.on_glass(c))
         self.table.setCellWidget(r, 2, combo)
         self.table.setItem(r, 3, QTableWidgetItem(f"{row.n_custom:.5f}"))
+        for col in (4, 5):                       # optimiser check-boxes (STAGE 7)
+            chk = QTableWidgetItem()
+            chk.setFlags((chk.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+            chk.setCheckState(Qt.Unchecked)
+            chk.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(r, col, chk)
         self._busy = was
         if not was:
             self.refresh_n()
@@ -251,9 +311,150 @@ class MainWindow(QMainWindow):
         self.refresh_n(keep_custom_from=combo)
         self.update_all()
 
-    def on_item_changed(self, _item):
-        if not self._busy:
+    def on_item_changed(self, item):
+        # ticking an optimiser check-box must not redraw everything
+        if not self._busy and item.column() < N_DATA_COLS:
             self.update_all()
+
+    # ------------------------------------------------ optimiser (STAGE 7)
+    @staticmethod
+    def _pair(a, b):
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(a)
+        lay.addWidget(b)
+        return w
+
+    def read_flags(self):
+        """(rows to vary radius, rows to vary thickness) from the check-boxes."""
+        rr, tt = [], []
+        for r in range(self.table.rowCount()):
+            if self.table.item(r, 4).checkState() == Qt.Checked:
+                rr.append(r)
+            if self.table.item(r, 5).checkState() == Qt.Checked:
+                tt.append(r)
+        return rr, tt
+
+    def set_flags(self, rr, tt):
+        was, self._busy = self._busy, True
+        for r in range(self.table.rowCount()):
+            self.table.item(r, 4).setCheckState(Qt.Checked if r in rr else Qt.Unchecked)
+            self.table.item(r, 5).setCheckState(Qt.Checked if r in tt else Qt.Unchecked)
+        self._busy = was
+
+    def _sync_history_buttons(self):
+        self.b_undo.setEnabled(self.history.can_undo() and not self._running)
+        self.b_redo.setEnabled(self.history.can_redo() and not self._running)
+
+    def _show_design(self, rows):
+        """Replace the table by `rows`, keeping the check-box selection."""
+        rr, tt = self.read_flags()
+        self.set_rows(rows)
+        self.set_flags(rr, tt)
+
+    def _make_config(self):
+        fields = (0.0,) if abs(self.field.value()) < 1e-9 else (0.0, self.field.value())
+        return opt.MeritConfig(
+            epd=self.epd.value(), fields_deg=fields,
+            efl_target=self.o_efl.value() if self.o_efl_on.isChecked() else None,
+            axial_colour_weight=float(self.o_col.value()),
+            min_center=self.o_cen.value(), min_edge=self.o_edge.value())
+
+    def run_opt(self):
+        if self._running:
+            return
+        try:
+            rows = self.read_rows()
+            rr, tt = self.read_flags()
+            if not rr and not tt:
+                raise ValueError("Tick at least one 'Vary R' or 'Vary t' box.")
+            cfg = self._make_config()
+            variables = opt.make_variables(
+                rows, rr, tt, r_min=max(self.o_rmin.value(), cfg.epd / 2 * 1.05),
+                t_min=self.o_tmin.value(), t_max=self.o_tmax.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Cannot optimise", str(e))
+            return
+
+        curve = []
+        ax = self.p_merit.ax
+
+        def on_eval(n, m):
+            curve.append(m)
+            if n % 5 == 1:                      # redraw only every 5th evaluation
+                ax.clear()
+                ax.semilogy(curve, "-", color="tab:blue")
+                ax.set_xlabel("function evaluation")
+                ax.set_ylabel("merit")
+                ax.grid(alpha=0.3)
+                self.p_merit.canvas.draw_idle()
+                QApplication.processEvents()    # keeps the Stop button alive
+            if self._stop:
+                raise _Abort()
+
+        self._stop, self._running = False, True
+        self.b_run.setEnabled(False)
+        self.b_stop.setEnabled(True)
+        self._sync_history_buttons()
+        self.tabs.setCurrentWidget(self.p_merit)
+        self.statusBar().showMessage("Optimising...")
+        try:
+            res = opt.optimize(rows, variables, cfg, max_nfev=int(self.o_iter.value()),
+                               callback=on_eval)
+        except _Abort:
+            self.o_report.setText("Stopped - the design was left unchanged.")
+            res = None
+        except Exception as e:
+            QMessageBox.warning(self, "Optimisation failed", str(e))
+            res = None
+        finally:
+            self._running = False
+            self.b_run.setEnabled(True)
+            self.b_stop.setEnabled(False)
+
+        if res is not None:
+            ax.clear()
+            ax.semilogy(res.merit_history, "-", color="tab:blue")
+            ax.set_xlabel("function evaluation")
+            ax.set_ylabel("merit")
+            ax.grid(alpha=0.3)
+            self.p_merit.canvas.draw_idle()
+            self.history.push(rows)             # remember the design BEFORE the change
+            self._show_design(res.rows)
+            self.o_report.setText(self._format_report(res, cfg))
+            self.statusBar().showMessage(
+                f"Optimised: merit {res.merit_start:.3g} -> {res.merit_end:.3g} "
+                f"in {res.n_evals} evaluations")
+        self._sync_history_buttons()
+
+    @staticmethod
+    def _format_report(res, cfg):
+        a, b = res.report_start, res.report_end
+        lines = [f"merit  {res.merit_start:10.4g} -> {res.merit_end:10.4g}  ({res.n_evals} evals)",
+                 f"EFL    {a['efl']:10.3f} -> {b['efl']:10.3f} mm",
+                 f"colour {a['axial_colour']:10.4f} -> {b['axial_colour']:10.4f} mm",
+                 f"image  {a['image_distance']:10.3f} -> {b['image_distance']:10.3f} mm"]
+        for (fdeg, wl), v0 in a['rms_spot_um'].items():
+            v1 = b['rms_spot_um'][(fdeg, wl)]
+            lines.append(f"RMS {fdeg:4.1f} deg {wl:6.1f} nm {v0:9.2f} -> {v1:9.2f} um")
+        lines.append(f"solver: {res.message}")
+        return "\n".join(lines)
+
+    def stop_opt(self):
+        self._stop = True
+
+    def undo_opt(self):
+        prev = self.history.undo(self.read_rows())
+        if prev is not None:
+            self._show_design(prev)
+        self._sync_history_buttons()
+
+    def redo_opt(self):
+        nxt = self.history.redo(self.read_rows())
+        if nxt is not None:
+            self._show_design(nxt)
+        self._sync_history_buttons()
 
     def refresh_n(self, keep_custom_from=None):
         """Show n(λ) for catalog glasses (read-only); Custom stays editable."""

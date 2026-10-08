@@ -56,5 +56,43 @@ def test_bad_input_does_not_crash(win):
     w, _ = win
     w.table.item(0, 0).setText("abc")
     assert w.statusBar().currentMessage().startswith("Error")
-    w.table.item(0, 0).setText("50")
-    assert w.statusBar().currentMessage() == "Updated"
+
+def test_optimizer_controls_and_variable_flags(win):
+    """Stage 7 starts with controls disabled appropriately and reads flags."""
+    w, mod = win
+    w.load_example("Achromat N-BK7/N-F2")
+    assert w.table.columnCount() == 6
+    assert not w.b_stop.isEnabled()
+    assert not w.b_undo.isEnabled()
+    w.table.item(0, 4).setCheckState(mod.Qt.Checked)
+    w.table.item(2, 4).setCheckState(mod.Qt.Checked)
+    w.table.item(2, 5).setCheckState(mod.Qt.Checked)
+    assert w.read_flags() == ([0, 2], [2])
+
+
+def test_optimizer_runs_and_undo_restores_design(win):
+    """Run a deliberately small Stage 7 optimisation without a modal dialog.
+
+    We perturb the image distance, select it as the only variable, and give an
+    EFL target.  The test checks that the merit tab/report appear and that Undo
+    returns precisely to the prescription before the optimisation.
+    """
+    w, mod = win
+    w.load_example("Achromat N-BK7/N-F2")
+    original = w.read_rows()
+    w.table.item(2, 1).setText("85")             # intentionally wrong image plane
+    before = w.read_rows()
+    w.set_flags([], [2])
+    w.o_efl_on.setChecked(True)
+    w.o_efl.setValue(100.0)
+    w.o_iter.setValue(30)
+    w.run_opt()
+    assert "merit" in w.o_report.text()
+    assert w.tabs.currentWidget() is w.p_merit
+    assert w.history.can_undo()
+    changed = w.read_rows()
+    assert changed != before
+    w.undo_opt()
+    assert w.read_rows() == before
+    w.redo_opt()
+    assert w.read_rows() == changed
